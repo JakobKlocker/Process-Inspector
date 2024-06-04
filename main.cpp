@@ -7,9 +7,19 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
+    DWORD pid = 0;
+
     SelectProcess selectProc;
-    selectProc.exec();
-    MainWindow w;
+    if(selectProc.exec() ==  QDialog::Accepted)
+        pid = selectProc.getSelectedPid();
+
+    qDebug() << pid;
+
+    if(!pid)
+        return 0;
+
+    MainWindow w(nullptr, pid);
+    w.loadProcessMemory();
     w.show();
     return a.exec();
 }

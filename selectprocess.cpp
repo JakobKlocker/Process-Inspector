@@ -3,7 +3,6 @@
 #include <QDialog>
 #include <QMessageBox>
 
-
 #include <windows.h>
 #include <tlhelp32.h>
 #include <Psapi.h>
@@ -15,7 +14,8 @@ QPixmap getProcessIcon(DWORD64 processID);
 
 SelectProcess::SelectProcess(QWidget *parent) :
     QDialog(parent),
-    ui(new Ui::SelectProcess)
+    ui(new Ui::SelectProcess),
+    selectedPid(0)
 {
     ui->setupUi(this);
     std::vector<std::pair<DWORD64, std::string>> processList;
@@ -23,13 +23,14 @@ SelectProcess::SelectProcess(QWidget *parent) :
 
     for(auto &s : processList)
     {
-        QString procIdHex = QString::number(s.first, 16).leftJustified(8, '0');
+        QString procIdHex = QString::number(s.first, 16).rightJustified(8, '0');
         QString itemText = procIdHex + " | " + s.second.c_str();
         QPixmap icon = getProcessIcon(s.first);
         QListWidgetItem *item = new QListWidgetItem(itemText);
         if (!icon.isNull())
             item->setIcon(QIcon(icon));
-
+        else
+            item->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileIcon));
         ui->listWidget->addItem(item);
     }
 }
@@ -39,7 +40,6 @@ SelectProcess::~SelectProcess()
     delete ui;
 }
 
-
 QPixmap getProcessIcon(DWORD64 processID)
 {
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS , FALSE, processID);
@@ -47,7 +47,6 @@ QPixmap getProcessIcon(DWORD64 processID)
         qDebug() << "Error: Failed to open process" << processID;
         return QPixmap();
     }
-
 
     wchar_t devicePath[MAX_PATH];
     if (GetProcessImageFileName(hProcess, devicePath, MAX_PATH) == 0) {
@@ -95,9 +94,10 @@ QPixmap getProcessIcon(DWORD64 processID)
 
 void SelectProcess::on_listWidget_itemDoubleClicked(QListWidgetItem *item)
 {
-    QMessageBox msg;
-    msg.setText(item->text());
-    msg.exec();
+    std::string itemText = item->text().toStdString();
+    this->selectedPid = std::stoul(itemText.substr(0,itemText.find(" ")), 0, 16);
+    qDebug() << this->selectedPid;
+    accept();
 }
 
 std::string wideCharToString(const wchar_t* wideCharString)
@@ -107,29 +107,25 @@ std::string wideCharToString(const wchar_t* wideCharString)
     return converter.to_bytes(wideString);
 }
 
-
 std::vector<std::pair<DWORD64, std::string>> listProcesses()
 {
     std::vector<std::pair<DWORD64, std::string>> ret;
-    // Create a snapshot of all processes in the system
+
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) {
         qDebug() << "Error: CreateToolhelp32Snapshot failed";
         return {};
     }
 
-    // Initialize the process entry structure
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
 
-    // Retrieve information about the first process
     if (!Process32First(hProcessSnap, &pe32)) {
         qDebug() << "Error: Process32First failed";
         CloseHandle(hProcessSnap);
         return {};
     }
 
-    // Loop through all processes and print their information
     do {
         qDebug() << "Process ID:" << pe32.th32ProcessID;
         qDebug() << "Process Name:" << QString::fromWCharArray(pe32.szExeFile);
@@ -137,7 +133,6 @@ std::vector<std::pair<DWORD64, std::string>> listProcesses()
         ret.push_back(std::make_pair(pe32.th32ProcessID, wideCharToString(pe32.szExeFile)));
     } while (Process32Next(hProcessSnap, &pe32));
 
-    // Close the handle to the snapshot
     CloseHandle(hProcessSnap);
     return ret;
 }
