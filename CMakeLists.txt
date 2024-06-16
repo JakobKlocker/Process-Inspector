@@ -20,6 +20,7 @@ set(PROJECT_SOURCES
         selectprocess.cpp  # Add your form's source file
         selectprocess.h    # Add your form's header file
         selectprocess.ui
+        MemoryPage.h
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

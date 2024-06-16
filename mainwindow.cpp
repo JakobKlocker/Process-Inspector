@@ -2,6 +2,7 @@
 #include "./ui_mainwindow.h"
 #include <QMessageBox>
 
+std::map<LPVOID, MemoryPage> memoryMap;
 
 MainWindow::MainWindow(QWidget *parent, DWORD newPid)
     : QMainWindow(parent)
@@ -9,35 +10,54 @@ MainWindow::MainWindow(QWidget *parent, DWORD newPid)
     , pid(newPid)
 {
     ui->setupUi(this);
-    initTable();
+    loadProcessMemory();
+    model = new QStringListModel(this);
+    ui->listView->setModel(model);
+    displayMemoryPages(memoryMap);
+
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
+
 }
 
-void MainWindow::initTable()
+
+void MainWindow::displayMemoryPages(const std::map<LPVOID, MemoryPage>& memoryMap)
 {
-    ui->tableWidget->setColumnCount(2);
-    QStringList headers;
-    headers << "Value" << "Description";
-    ui->tableWidget->setHorizontalHeaderLabels(headers);
-    for (int i = 0; i < 100; ++i) {
-        ui->tableWidget->insertRow(i);
-        QTableWidgetItem *valueItem = new QTableWidgetItem(QString::number(i * 123.456, 'f', 3));
-        QTableWidgetItem *descriptionItem = new QTableWidgetItem(QString("Description %1").arg(i));
+    QStringList dataList;
 
-        ui->tableWidget->setItem(i, 0, valueItem);
-        ui->tableWidget->setItem(i, 1, descriptionItem);
+    size_t bytesPerLine = 36;
+    int i = 0;
+    for (auto it = memoryMap.begin(); i < 10 && it != memoryMap.end(); ++it, ++i)
+    {
+        QString baseAddressStr = QString::asprintf("0x%llx", reinterpret_cast<unsigned long long>(it->first));
+        const MemoryPage& page = it->second;
 
-        QString address = QString::asprintf("0x%08X", 0x10000000 + i * 16);
-        QTableWidgetItem *addressHeaderItem = new QTableWidgetItem(address);
-        ui->tableWidget->setVerticalHeaderItem(i, addressHeaderItem);
+        for (size_t i = 0; i < page.bytes.size(); i += bytesPerLine)
+        {
+
+            LPVOID currentAddress = reinterpret_cast<LPVOID>(reinterpret_cast<uintptr_t>(it->first) + i);
+            QString addressStr = QString::asprintf("0x%llx", reinterpret_cast<unsigned long long>(currentAddress));
+
+            QString bytesStr;
+            size_t chunkSize = std::min(bytesPerLine, page.bytes.size() - i);
+            for (size_t j = 0; j < chunkSize; ++j) {
+                bytesStr += QString::asprintf("%02X ", page.bytes[i + j]);
+            }
+
+            QString itemText = QString("%1: %2").arg(addressStr).arg(bytesStr.trimmed());
+            dataList << itemText;
+
+        }
     }
+
+    model->setStringList(dataList);
 }
 
-// Still in progress, change datatype to map so having all the memory addresses paired to the bytes. Also fix VirtualProtect
+
+
 bool MainWindow::loadProcessMemory()
 {
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS , FALSE, this->pid);
@@ -48,7 +68,6 @@ bool MainWindow::loadProcessMemory()
 
     MEMORY_BASIC_INFORMATION memoryInfo;
 
-    std::vector<BYTE>memory(0);
     LPVOID address = nullptr;
     std::size_t totalBytesRead = 0;
     std::size_t bytesRead = 0;
@@ -58,32 +77,28 @@ bool MainWindow::loadProcessMemory()
     {
         if (memoryInfo.State == MEM_COMMIT)
         {
-            if (!VirtualProtectEx(hProcess, memoryInfo.BaseAddress, memoryInfo.RegionSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                qDebug() << "Error changing protection of memory at" << memoryInfo.BaseAddress;
+            if (!(memoryInfo.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)))
+            {
+                if (!VirtualProtectEx(hProcess, memoryInfo.BaseAddress, memoryInfo.RegionSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                    qDebug() << "Error changing protection of memory at" << memoryInfo.BaseAddress;
+                }
             }
 
-        if(memoryInfo.RegionSize == -1)
-            std::string s = "";
-        memory.resize(totalBytesRead + memoryInfo.RegionSize);
+        std::vector<BYTE> buffer(memoryInfo.RegionSize);
 
-        if(!ReadProcessMemory(hProcess, address, &memory[totalBytesRead], memoryInfo.RegionSize, &bytesRead))
+        if(ReadProcessMemory(hProcess, address, buffer.data(), memoryInfo.RegionSize, &bytesRead) && bytesRead == memoryInfo.RegionSize)
         {
-            qDebug() << "Error readingProcessMem";
-            DWORD64 test = memory.size();
-            memory.resize(totalBytesRead);
+            MemoryPage page = {std::move(buffer), memoryInfo.RegionSize};
+            memoryMap[memoryInfo.BaseAddress] = std::move(page);
         }
+        else
+            qDebug() << "Error readingProcessMem";
 
         qDebug() << address << "   " << bytesRead;
-
-        if(0x25ce8d000 == (DWORD64)address)
-            std::string test = "";
 
         totalBytesRead += bytesRead;
         }
         address = LPVOID((BYTE*)memoryInfo.BaseAddress + memoryInfo.RegionSize);
     }
-
-
-
     return true;
 }

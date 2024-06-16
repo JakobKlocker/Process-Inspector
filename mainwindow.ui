@@ -15,8 +15,8 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QFormLayout" name="formLayout">
-    <item row="0" column="1">
-     <widget class="QTableWidget" name="tableWidget"/>
+    <item row="0" column="0" colspan="2">
+     <widget class="QListView" name="listView"/>
     </item>
    </layout>
   </widget>

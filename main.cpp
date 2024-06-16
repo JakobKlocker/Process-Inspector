@@ -19,7 +19,6 @@ int main(int argc, char *argv[])
         return 0;
 
     MainWindow w(nullptr, pid);
-    w.loadProcessMemory();
     w.show();
     return a.exec();
 }
